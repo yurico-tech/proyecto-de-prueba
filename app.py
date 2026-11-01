@@ -86,10 +86,11 @@ if st.session_state.lista_productos:
     # Mostramos la tabla interactiva en Streamlit
     st.dataframe(df, use_container_width=True)
     
-    # --- FUNCIÓN PARA GENERAR EL ARCHIVO EXCEL EN MEMORIA ---
+  # --- FUNCIÓN PARA GENERAR EL ARCHIVO EXCEL EN MEMORIA ---
     def generar_excel(dataframe):
         salida = BytesIO()
-        with pd.ExcelWriter(salida, engine='openpyxl') as writer:
+        # Cambiamos engine='openpyxl' por engine='xlsxwriter'
+        with pd.ExcelWriter(salida, engine='xlsxwriter') as writer:
             dataframe.to_excel(writer, index=False, sheet_name='Precios')
         return salida.getvalue()
     
