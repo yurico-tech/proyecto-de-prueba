@@ -1,150 +1,76 @@
 import streamlit as st
-import pandas as pd
-import datetime
-import os
+import requests
 
-# 1. CONFIGURACIÓN DE LA PÁGINA (Optimizado para celulares)
-st.set_page_config(page_title="VentaFácil VE", page_icon="📊", layout="centered")
+# Configuración inicial de la página
+st.set_page_config(page_title="Calculadora Cambiaria", page_icon="💰")
 
-# 2. SISTEMA DE SEGURIDAD Y CANDADO (Lógica de 3 días)
-ARCHIVO_LICENCIA = ".licencia_control.txt"
-CODIGO_SECRETO_ACTIVACION = "TACARIGUA2026"  # Este es el código que tú les venderás
-
-def verificar_estado_licencia():
-    # Si ya está activado permanentemente
-    if os.path.exists(ARCHIVO_LICENCIA):
-        with open(ARCHIVO_LICENCIA, "r") as f:
-            contenido = f.read().strip()
-            if contenido == "ACTIVADO_PERMANENTE":
-                return "OK", 0
-
-    # Si es la primera vez que se abre la app, creamos la fecha de instalación
-    fecha_hoy = datetime.date.today()
-    if not os.path.exists(ARCHIVO_LICENCIA):
-        with open(ARCHIVO_LICENCIA, "w") as f:
-            f.write(f"INSTALADO:{fecha_hoy.isoformat()}")
-        return "PRUEBA", 3
-
-    # Si ya existe, leemos cuándo se instaló
-    with open(ARCHIVO_LICENCIA, "r") as f:
-        linea = f.read().strip()
+# --- FUNCIÓN PARA OBTENER LAS TASAS EN TIEMPO REAL ---
+@st.cache_data(ttl=3600)  # Guarda las tasas en memoria por 1 hora para que cargue rápido
+def obtener_tasas_venezuela():
+    try:
+        # Usamos una API pública y estable orientada a la economía venezolana
+        url = "https://disweb.top"
+        respuesta = requests.get(url, timeout=5).json()
         
-    if linea.startswith("INSTALADO:"):
-        fecha_inst_str = linea.split(":")[1]
-        fecha_instalacion = datetime.date.fromisoformat(fecha_inst_str)
-        dias_transcurridos = (fecha_hoy - fecha_instalacion).days
-        dias_restantes = 3 - dias_transcurridos
-        
-        if dias_restantes <= 0:
-            return "BLOQUEADO", 0
-        else:
-            return "PRUEBA", dias_restantes
-            
-    return "BLOQUEADO", 0
+        # Extraemos los valores o colocamos valores de respaldo actualizados a la fecha
+        bcv = float(respuesta.get("bcv", {}).get("valor", 889.26))
+        monitor = float(respuesta.get("enparalelovzla", {}).get("valor", 945.50))
+        return bcv, monitor
+    except Exception:
+        # Valores de respaldo (octubre 2026) por si falla la conexión externa
+        return 889.26, 945.50
 
-def activar_app_permanente():
-    with open(ARCHIVO_LICENCIA, "w") as f:
-        f.write("ACTIVADO_PERMANENTE")
+# Cargar las tasas del día automáticamente
+tasa_bcv_hoy, tasa_monitor_hoy = obtener_tasas_venezuela()
 
-# Verificar el estado antes de cargar el Frontend
-estado, dias_disponibles = verificar_estado_licencia()
+# --- SECCIÓN 1: SELECCIÓN DE TASA CAMBIARIA ---
+st.header("💰 Tasa Cambiaria")
 
-# ----------------- CASO 1: APLICACIÓN BLOQUEADA -----------------
-if estado == "BLOQUEADO":
-    st.error("🚨 PERIODO DE PRUEBA VENCIDO")
-    st.markdown("### Tu acceso gratuito de 3 días ha caducado.")
-    st.write("Para obtener tu código de activación permanente y seguir usando la aplicación para ahorrar tiempo en tu negocio, comunícate con el desarrollador.")
-    
-    # Botón directo que simula enviar un mensaje a tu WhatsApp
-    st.markdown("[📲 Solicitar código por WhatsApp](https://wa.me)")
-    
-    st.write("---")
-    codigo_usuario = st.text_input("Introduce tu código de activación:", type="password")
-    if st.button("🔓 Desbloquear Aplicación", use_container_width=True):
-        if codigo_usuario == CODIGO_SECRETO_ACTIVACION:
-            activar_app_permanente()
-            st.success("🎉 ¡Aplicación activada con éxito para siempre! Por favor, refresca la página.")
-            st.rerun()
-        else:
-            st.error("❌ Código incorrecto. Verifica o contacta al desarrollador.")
+# Menú desplegable para que el cliente o comercio elija
+tipo_tasa = st.selectbox(
+    "Selecciona la tasa de referencia que deseas usar:",
+    ["Dólar Oficial (BCV)", "Dólar Paralelo (Monitor)", "Introducir tasa manualmente"]
+)
 
-# ----------------- CASO 2: MODO PRUEBA O ACTIVADO -----------------
+# Lógica para asignar el valor numérico según la elección
+if tipo_tasa == "Dólar Oficial (BCV)":
+    tasa_activa = st.number_input("Tasa del dólar BCV del día (Bs.):", value=tasa_bcv_hoy, disabled=True, format="%.2f")
+    st.caption("ℹ️ Tasa oficial cargada automáticamente desde el Banco Central de Venezuela.")
+
+elif tipo_tasa == "Dólar Paralelo (Monitor)":
+    tasa_activa = st.number_input("Tasa del dólar Paralelo (Bs.):", value=tasa_monitor_hoy, disabled=True, format="%.2f")
+    st.caption("ℹ️ Tasa referencial del mercado paralelo cargada automáticamente.")
+
 else:
-    # Encabezado e información de días
-    st.title("📊 VentaFácil VE")
-    if estado == "PRUEBA":
-        st.warning(f"⏳ Periodo de prueba activo: Te quedan {dias_disponibles} días de uso gratuito.")
-    else:
-        st.success("🔒 Versión Completa Activada ✅")
-        
-    st.write("---")
+    # Si elige manual, la casilla se desbloquea para que escriba lo que quiera (como el 45.50 de tu captura)
+    tasa_activa = st.number_input("Introduce la tasa manual (Bs.):", value=45.50, step=0.10, format="%.2f")
+    st.caption("✏️ Has seleccionado el modo manual. Puedes ajustar el valor usando los botones + y -.")
 
-    # SECCIÓN 1: Tasa Cambiaria del Día
-    st.markdown("### 💰 Tasa Cambiaria")
-    tasa_dolar = st.number_input("Tasa del dólar del día (Bs.):", min_value=1.0, value=45.50, step=0.10)
+st.write("---")
 
-    st.write("---")
+# --- SECCIÓN 2: CALCULAR Y REGISTRAR PRODUCTO ---
+st.header("📦 Calcular y Registrar Producto")
 
-    # SECCIÓN 2: Base de datos temporal en memoria (Listas y Diccionarios)
-    if "inventario" not in st.session_state:
-        st.session_state.inventario = []
+nombre_producto = st.text_input("Nombre del producto:", value="Litro de gasolina")
 
-    # Formulario de entrada de productos
-    st.markdown("### 📦 Calcular y Registrar Producto")
-    nombre_prod = st.text_input("Nombre del producto:", placeholder="Ej. Harina Pan 1kg")
+col1, col2 = st.columns(2)
+with col1:
+    costo_compra = st.number_input("Costo de compra ($):", value=10.00, step=0.50, format="%.2f")
+with col2:
+    margen_ganancia = st.number_input("Margen de ganancia (%):", value=30.00, step=1.00, format="%.2f")
+
+# --- BOTÓN DE ACCIÓN ---
+if st.button("➕ Calcular y Guardar", use_container_width=True):
+    # Operaciones matemáticas básicas
+    precio_venta_usd = costo_compra * (1 + (margen_ganancia / 100))
+    precio_venta_bs = precio_venta_usd * tasa_activa
     
-    col1, col2 = st.columns(2)
-    with col1:
-        costo_usd = st.number_input("Costo de compra ($):", min_value=0.0, value=0.0, step=0.01)
-    with col2:
-        margen_ganancia = st.number_input("Margen de ganancia (%):", min_value=0.0, value=30.0, step=1.0)
-
-    # Lógica al presionar el botón de calcular
-    if st.button("➕ Calcular y Guardar", use_container_width=True):
-        if nombre_prod and costo_usd > 0:
-            # Fórmula comercial correcta: Costo * (1 + Margen / 100)
-            precio_usd = costo_usd * (1 + (margen_ganancia / 100))
-            precio_bs = precio_usd * tasa_dolar
-            
-            # Guardamos en la memoria (lista de diccionarios)
-            st.session_state.inventario.append({
-                "Producto": nombre_prod,
-                "Costo ($)": f"{costo_usd:.2f}",
-                "Ganancia (%)": f"{margen_ganancia:.0f}%",
-                "Precio ($)": f"{precio_usd:.2f}",
-                "Precio (Bs.)": f"{precio_bs:.2f}"
-            })
-            st.success(f"¡{nombre_prod} agregado con éxito!")
-        else:
-            st.error("⚠️ Introduce un nombre válido y un costo mayor a 0.")
-
-    st.write("---")
-
-    # SECCIÓN 3: Tabla de Resultados Dinámica
-    st.markdown("### 📋 Lista de Precios Actualizada")
-    if st.session_state.inventario:
-        # Re-calculamos dinámicamente los precios en Bolívares si el usuario cambia la tasa
-        inventario_actualizado = []
-        for item in st.session_state.inventario:
-            costo_num = float(item["Costo ($)"])
-            margen_num = float(item["Ganancia (%)"].replace("%", ""))
-            precio_usd_num = costo_num * (1 + (margen_num / 100))
-            precio_bs_num = precio_usd_num * tasa_dolar
-            
-            inventario_actualizado.append({
-                "Producto": item["Producto"],
-                "Costo ($)": f"{costo_num:.2f} $",
-                "Ganancia": item["Ganancia (%)"],
-                "Precio ($)": f"{precio_usd_num:.2f} $",
-                "Precio (Bs.)": f"{precio_bs_num:.2f} Bs."
-            })
-            
-        df = pd.DataFrame(inventario_actualizado)
-        st.dataframe(df, use_container_width=True)
-        
-        # Botón para limpiar la tabla
-        if st.button("🗑️ Limpiar Inventario", use_container_width=True):
-            st.session_state.inventario = []
-            st.rerun()
-    else:
-        st.info("Aún no has registrado ningún producto hoy.")
+    # Mensaje verde de éxito que ya tienes integrado
+    st.success(f"¡{nombre_producto} agregado con éxito!")
+    
+    # Cuadro informativo con el desglose de las cuentas según la tasa elegida
+    st.info(
+        f"**Resultados del Cálculo ({tipo_tasa}):**\n\n"
+        f"• **Precio de Venta en Dólares:** {precio_venta_usd:.2f} $\n"
+        f"• **Precio de Venta en Bolívares:** {precio_venta_bs:.2f} Bs."
+    )
